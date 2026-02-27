@@ -198,6 +198,23 @@
             cursor: not-allowed;
             transform: none;
         }
+        
+        /* 暂停按钮特定样式 */
+        #pause-btn {
+            background-color: #2196F3;
+            box-shadow: 0 5px 0 #0D47A1;
+        }
+        
+        #pause-btn:active {
+            box-shadow: 0 1px 0 #0D47A1;
+        }
+        
+        .controls {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
 
         /* 弹窗 */
         .modal-overlay {
@@ -284,6 +301,7 @@
         <div class="stats-bar">
             <div class="stat-item">得分: <span id="score">0</span></div>
             <div class="stat-item">时间: <span id="time-left">30</span>s</div>
+            <div class="stat-item">最高分: <span id="high-score">0</span></div>
         </div>
     </header>
 
@@ -302,6 +320,7 @@
 
     <div class="controls">
         <button id="start-btn">开始游戏</button>
+        <button id="pause-btn" disabled>暂停游戏</button>
     </div>
 
     <!-- 游戏结束弹窗 -->
@@ -319,8 +338,10 @@
         const holes = document.querySelectorAll('.hole');
         const scoreBoard = document.getElementById('score');
         const timeDisplay = document.getElementById('time-left');
+        const highScoreDisplay = document.getElementById('high-score');
         const moles = document.querySelectorAll('.mole');
         const startBtn = document.getElementById('start-btn');
+        const pauseBtn = document.getElementById('pause-btn');
         const restartBtn = document.getElementById('restart-btn');
         const modal = document.getElementById('game-over-modal');
         const finalScoreDisplay = document.getElementById('final-score-display');
@@ -329,9 +350,17 @@
         let lastHole;
         let timeUp = false;
         let score = 0;
+        let highScore = localStorage.getItem('mouseHighScore') || 0;
         let gameTime = 30; // 游戏时长（秒）
         let countdownTimer;
         let peepTimer; // 地鼠出现的定时器
+        let isPaused = false;
+        let gameRunning = false;
+        
+        // 初始化最高分显示
+        if (highScoreDisplay) {
+            highScoreDisplay.textContent = highScore;
+        }
 
         // 工具函数：生成随机时间
         function randomTime(min, max) {
@@ -340,19 +369,36 @@
 
         // 工具函数：随机选择一个洞（不重复）
         function randomHole(holes) {
-            const idx = Math.floor(Math.random() * holes.length);
-            const hole = holes[idx];
-            if (hole === lastHole) {
-                return randomHole(holes);
-            }
+            // 避免递归，使用循环方法
+            let hole;
+            let attempts = 0;
+            const maxAttempts = 10; // 防止无限循环
+            
+            do {
+                const idx = Math.floor(Math.random() * holes.length);
+                hole = holes[idx];
+                attempts++;
+                
+                // 如果尝试次数过多，直接返回当前选择的洞
+                if (attempts >= maxAttempts) {
+                    break;
+                }
+            } while (hole === lastHole && holes.length > 1);
+            
             lastHole = hole;
             return hole;
         }
 
         // 地鼠冒头逻辑
         function peep() {
+            // 如果游戏暂停，不执行任何操作
+            if (isPaused) {
+                peepTimer = setTimeout(peep, 100); // 100ms后重试
+                return;
+            }
+            
             // 根据分数调整速度：分数越高，地鼠速度越快（但保留最小值）
-            const minTime = Math.max(200, 600 - score * 10); 
+            const minTime = Math.max(200, 600 - score * 10);
             const maxTime = Math.max(500, 1000 - score * 10);
             
             const time = randomTime(minTime, maxTime);
@@ -366,7 +412,7 @@
 
             peepTimer = setTimeout(() => {
                 hole.classList.remove('up');
-                if (!timeUp) peep();
+                if (!timeUp && !isPaused) peep();
             }, time);
         }
 
@@ -377,29 +423,66 @@
             timeDisplay.textContent = gameTime;
             timeUp = false;
             score = 0;
+            isPaused = false;
+            gameRunning = true;
             startBtn.disabled = true;
             startBtn.textContent = "游戏中...";
+            pauseBtn.disabled = false;
+            pauseBtn.textContent = "暂停游戏";
             modal.classList.remove('active');
 
+            // 清除之前的定时器
+            clearTimeout(peepTimer);
+            clearInterval(countdownTimer);
+            
             // 立即开始冒头循环
             peep();
             
             // 开始倒计时
             let currentTime = gameTime;
             countdownTimer = setInterval(() => {
-                currentTime--;
-                timeDisplay.textContent = currentTime;
-                if (currentTime <= 0) {
-                    endGame();
+                if (!isPaused) {
+                    currentTime--;
+                    timeDisplay.textContent = currentTime;
+                    if (currentTime <= 0) {
+                        endGame();
+                    }
                 }
             }, 1000);
+        }
+        
+        // 暂停/继续游戏
+        function togglePause() {
+            if (!gameRunning || timeUp) return;
+            
+            isPaused = !isPaused;
+            
+            if (isPaused) {
+                pauseBtn.textContent = "继续游戏";
+                // 隐藏所有地鼠
+                holes.forEach(hole => hole.classList.remove('up'));
+            } else {
+                pauseBtn.textContent = "暂停游戏";
+                // 继续游戏
+                peep();
+            }
         }
 
         // 结束游戏
         function endGame() {
             timeUp = true;
+            gameRunning = false;
             clearInterval(countdownTimer);
             clearTimeout(peepTimer);
+            
+            // 更新最高分
+            if (score > highScore) {
+                highScore = score;
+                localStorage.setItem('mouseHighScore', highScore);
+                if (highScoreDisplay) {
+                    highScoreDisplay.textContent = highScore;
+                }
+            }
             
             // 显示最终得分
             finalScoreDisplay.textContent = score;
@@ -409,6 +492,8 @@
                 modal.classList.add('active');
                 startBtn.disabled = false;
                 startBtn.textContent = "开始游戏";
+                pauseBtn.disabled = true;
+                pauseBtn.textContent = "暂停游戏";
             }, 500);
         }
 
